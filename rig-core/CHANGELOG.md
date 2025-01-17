@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/0xPlaygrounds/rig/compare/rig-core-v0.6.1...rig-core-v0.7.0) - 2025-01-17
+
+### Fixed
+
+- anthropic tool use (#168)
+
+### Other
+
+- *(README)* add SQLite as a supported vector store (#201)
+
 ## [0.6.1](https://github.com/0xPlaygrounds/rig/compare/rig-core-v0.6.0...rig-core-v0.6.1) - 2025-01-13
 
 ### Added
