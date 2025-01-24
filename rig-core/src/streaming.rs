@@ -11,10 +11,10 @@
 
 use crate::agent::Agent;
 use crate::completion::{CompletionError, CompletionModel, CompletionRequest, Message};
-use futures::{Stream, StreamExt};
+use futures::{Stream, TryStream};
 use std::fmt::{Display, Formatter};
-use std::future::Future;
 use std::pin::Pin;
+use tokio_stream::StreamExt;
 
 /// Enum representing a streaming chunk from the model
 #[derive(Debug)]
@@ -45,7 +45,7 @@ pub trait StreamingPrompt: Send + Sync {
     fn stream_prompt(
         &self,
         prompt: &str,
-    ) -> impl Future<Output = Result<StreamingResult, CompletionError>> + Send;
+    ) -> impl TryStream<Ok = StreamingChoice, Error = CompletionError>;
 }
 
 /// Trait for high-level streaming chat interface
@@ -55,7 +55,7 @@ pub trait StreamingChat: Send + Sync {
         &self,
         prompt: &str,
         chat_history: Vec<Message>,
-    ) -> impl Future<Output = Result<StreamingResult, CompletionError>> + Send;
+    ) -> impl TryStream<Ok = StreamingChoice, Error = CompletionError>;
 }
 
 /// Trait for low-level streaming completion interface
@@ -64,7 +64,7 @@ pub trait StreamingCompletion<M: StreamingCompletionModel>: Send + Sync {
     fn streaming_completion(
         &self,
         request: CompletionRequest,
-    ) -> impl Future<Output = Result<StreamingResult, CompletionError>> + Send;
+    ) -> impl TryStream<Ok = StreamingChoice, Error = CompletionError>;
 }
 
 /// Trait defining a streaming completion model
@@ -73,32 +73,39 @@ pub trait StreamingCompletionModel: CompletionModel {
     fn stream(
         &self,
         request: CompletionRequest,
-    ) -> impl Future<Output = Result<StreamingResult, CompletionError>> + Send;
+    ) -> impl TryStream<Ok = StreamingChoice, Error = CompletionError>;
 }
 
 /// helper function to stream a completion request to stdout
 pub async fn stream_to_stdout<M: StreamingCompletionModel>(
     agent: Agent<M>,
-    stream: &mut StreamingResult,
+    stream: impl TryStream<Ok = StreamingChoice, Error = CompletionError>,
 ) -> Result<(), std::io::Error> {
-    print!("Response: ");
-    while let Some(chunk) = stream.next().await {
+    tokio::pin!(stream);
+
+    while let Some(chunk) = stream.try_next().await {
         match chunk {
-            Ok(StreamingChoice::Message(text)) => {
-                print!("{}", text);
-                std::io::Write::flush(&mut std::io::stdout())?;
-            }
-            Ok(StreamingChoice::ToolCall(name, _, params)) => {
-                let res = agent
-                    .tools
-                    .call(&name, params.to_string())
-                    .await
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-                println!("\nResult: {}", res);
-            }
+            Ok(chunk) => match chunk {
+                StreamingChoice::Message(text) => {
+                    print!("{}", text);
+                    std::io::Write::flush(&mut std::io::stdout())?;
+                }
+                StreamingChoice::ToolCall(name, _, params) => {
+                    let res = agent
+                        .tools
+                        .call(&name, params.to_string())
+                        .await
+                        .map_err(|e| {
+                            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                        })?;
+                    println!("\nResult: {}", res);
+                }
+            },
             Err(e) => {
-                eprintln!("Error: {}", e);
-                break;
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
             }
         }
     }

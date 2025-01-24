@@ -106,9 +106,9 @@
 //! let response = agent.prompt("What does \"glarb-glarb\" mean?").await
 //!     .expect("Failed to prompt the agent");
 //! ```
-use std::{collections::HashMap, pin::Pin};
+use std::collections::HashMap;
 
-use futures::{stream, Stream, StreamExt, TryStreamExt};
+use futures::{stream, StreamExt, TryStream, TryStreamExt};
 
 use crate::{
     completion::{
@@ -432,39 +432,35 @@ impl<M: CompletionModel> AgentBuilder<M> {
 }
 
 impl<M: StreamingCompletionModel> StreamingCompletion<M> for Agent<M> {
-    async fn streaming_completion(
+    fn streaming_completion(
         &self,
         request: CompletionRequest,
-    ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<StreamingChoice, CompletionError>> + Send>>,
-        CompletionError,
-    > {
-        self.model.stream(request).await
+    ) -> impl TryStream<Ok = StreamingChoice, Error = CompletionError> {
+        self.model.stream(request)
     }
 }
 
 impl<M: StreamingCompletionModel> StreamingPrompt for Agent<M> {
-    async fn stream_prompt(
+    fn stream_prompt(
         &self,
         prompt: &str,
-    ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<StreamingChoice, CompletionError>> + Send>>,
-        CompletionError,
-    > {
-        self.stream_chat(prompt, vec![]).await
+    ) -> impl TryStream<Ok = StreamingChoice, Error = CompletionError> {
+        self.stream_chat(prompt, vec![])
     }
 }
 
 impl<M: StreamingCompletionModel> StreamingChat for Agent<M> {
-    async fn stream_chat(
+    fn stream_chat(
         &self,
         prompt: &str,
         chat_history: Vec<Message>,
-    ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<StreamingChoice, CompletionError>> + Send>>,
-        CompletionError,
-    > {
-        let request = self.completion(prompt, chat_history).await?.build();
-        self.streaming_completion(request).await
+    ) -> impl TryStream<Ok = StreamingChoice, Error = CompletionError> {
+        let request = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.completion(prompt, chat_history))
+            .unwrap()
+            .build();
+
+        self.streaming_completion(request)
     }
 }
