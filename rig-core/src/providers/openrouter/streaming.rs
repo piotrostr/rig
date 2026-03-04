@@ -363,7 +363,9 @@ pub async fn send_streaming_request(
                     println!("PARSED: {}", serde_json::to_string_pretty(&data).unwrap_or_default());
                 }
 
-                let choice = data.choices.first().expect("Should have at least one choice");
+                let Some(choice) = data.choices.first() else {
+                    continue;
+                };
 
                 // TODO this has to handle outputs like this:
                 // [{"index": 0, "id": "call_DdmO9pD3xa9XTPNJ32zg2hcA", "function": {"arguments": "", "name": "get_weather"}, "type": "function"}]
